@@ -1,0 +1,1539 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{css, echo=FALSE}
+body {
+  text-align: justify;
+}
+```
+
+<span style="font-size: 1em; float: right;">25/12/2023</span>
+<center><span style="font-size:2.3em;">STATISTICAL SOFTWARE R and SAS:
+Final Practice</span></center> 
+<center><span style="font-size:1em;">By Oriol Segarra y Nabil EL Bachiri</span></center>
+
+<span style="font-size:1.7em;">Problem Statement</span>
+
+Europe is affected by climate change and its effects are not only perceived on earth. European water bodies (lakes, rivers and oceans and seas of the continent) are also affected. Given that there is more water than land on the planet’s surface, it is not surprising that the warming
+of the oceans has accounted for about 93 % of the global warming since the 1950s. 
+
+This warming occurs as a result of the increase in greenhouse gas emissions, especially carbon dioxide, which in turn trap more and more solar energy within the atmosphere. Most of this trapped heat is eventually stored in the oceans, which affects the temperature and the circulation of water. Sea surface temperatures on European coasts are rising more rapidly than those in the world oceans. Water temperature represents one of the most important regulatory elements of marine life, so that temperature increases are already causing major changes under the surface of the water (www.eea.europa.eu)
+
+In the file data frame sea_temperature.xls the temperature is displayed (grados centígrados) of sea water at different depths (0, -20, -50, -80m) from 2000 to 2017, measured at the Estartit observation
+point on the Costa Brava (1 mile east of the Medes Islands (Girona); coordinates: 4203 Ń, 315 É). This table shows the temperatures of each month by depth and the temperatures of each month for a
+period of about 30 years. The average temperatures of the periods are also presented. The description of this data can be found in the IDESCAT link:
+https://www.idescat.cat/pub/?id=aec&n=218&t=2000
+
+The objective of this practice is to contribute to the study of climate change, especially that produced in the last 30 years, through the use of real data. We will thus proceed to carry out a study as complete as possible (descriptive, graphical, functions, bookstore of R) on the change of the sea temperature by depth for the different years and months studied, as well as in the different depths and their comparison with the previous periods. Different functions will be performed as described in the following different sections.
+
+
+<center> <span style="font-size:1.7em;">Exercise 1</span></center> 
+
+<span style="font-size:1.5em;">Section A</span> 
+
+Import the study data (data frame sea_temperature.xls) and place it in a data frame with name sea.deep. Name the variables according to the specifications in the data set and place labels describing units and what each variable and case is (years, months, depth, etc.). You should place it properly according to the format of the data.
+
+<strong><span style="font-size:1.2em;">Answer</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+#Exercici 1a
+library(rvest)
+library(xml2)
+library(dplyr)
+library(tidyr)
+
+scrape_and_process_data <- function(years) {
+  base_url <- "https://www.idescat.cat/indicadors/?id=aec&n=15196&t="
+  
+  # Function to scrape data
+  scrape_data_for_year <- function(year) {
+    url <- paste0(base_url, year, "00")
+    webpage <- read_html(url)
+    tables <- html_nodes(webpage, "table.ApartNum.xs.Cols5")
+    data <- html_table(tables, fill = TRUE)
+    captions <- html_nodes(webpage, "table.ApartNum.xs.Cols5 > caption") %>%
+      html_text()
+    names(data) <- captions
+    
+    # Drop rows containing "Font" or "Nota"
+    data <- lapply(data, function(table) {
+      drop_rows <- grepl("Font|Nota", table[[1]])
+      table[!drop_rows, ]
+    })
+    
+    return(data)
+  }
+  
+  # Function to process each dataset
+  process_tibble <- function(tibble, year) {
+    if (tibble[1, 1] == "") {
+      tibble[1, 1] <- paste("Any", year)
+      tibble[2:14, 1] <- sapply(tibble[2:14, 1], function(month) paste(month, year, sep="-"))
+    } else {
+      period <- tibble[1, 1]
+      tibble[2:14, 1] <- sapply(tibble[2:14, 1], function(month) paste(month, period, sep="-"))
+    }
+    return(tibble)
+  }
+  
+  all_data <- lapply(years, scrape_data_for_year)
+  
+  # Process and reshape data
+  all_data_long_format <- data.frame()
+  
+  for (i in seq_along(all_data)) {
+    pair <- all_data[[i]]
+    year <- years[i]
+    
+    processed_pair <- lapply(pair, function(tib) process_tibble(tib, year))
+    
+    for (j in seq_along(processed_pair)) {
+      tibble <- processed_pair[[j]]
+      depths <- as.character(tibble[1, -1])
+      colnames(tibble)[1] <- "Month"
+      colnames(tibble)[-1] <- paste0("Depth_", depths)
+      tibble <- tibble[-1, ]
+      
+      reshaped <- tibble %>%
+        pivot_longer(cols = starts_with("Depth_"), names_to = "Depth", values_to = "Temperature") %>%
+        mutate(Year = year, Type = ifelse(j == 1, "Current Year", "Historical"))
+      
+      reshaped$Month <- rep(tibble$Month, each = length(depths))
+      
+      all_data_long_format <- rbind(all_data_long_format, reshaped)
+    }
+  }
+  
+  return(as.data.frame(all_data_long_format))
+}
+
+# Usage
+years <- 2000:2022
+sea.deep <- scrape_and_process_data(years)
+head(sea.deep, 10)
+
+```
+
+The function scrape_and_process_data begins by defining the base URL for the Idescat website and establishes a range of years (2000 to 2022) for which the data is to be collected. Within the function, a custom (inner) function, scrape_data_for_year, is created to navigate through the website for each specified year. This function extracts relevant tables from the webpage and cleanses the data by removing rows where the first column contains specific keywords ('Font' and 'Nota'). This ensures that only relevant data is retained, making the dataset more accurate and useful.
+
+The scraped data is systematically organized into a list, with each element corresponding to a year. Each list element contains one or more data frames (tibbles), each named with a caption extracted from the website. This organization provides a clear structure to the dataset, facilitating subsequent processing and analysis.
+
+The function then introduces another (inner) function, process_tibble, dedicated to refining the structure of these tibbles. This function addresses potential inconsistencies, such as empty cells in the first row or column. It modifies the first column of each tibble to include the year, appending it to each month or period mentioned. This step is crucial as it ensures that each data point is correctly timestamped, which is vital for accurate analysis after merging the data.
+
+Subsequently, the function iteratively applies these functions to the data from each year, collating the results into a comprehensive dataset. The final segment of the function employs the dplyr and tidyr packages to transform this list of tibbles into a long format. This transformation is achieved using the pivot_longer function, which converts the data into a format more conducive for in-depth analysis. The outcome is a well-structured sea.deep data frame, with columns for Month, Depth, Temperature, Year, and Type. This format facilitates easier access and manipulation of the data for subsequent analytical tasks.
+
+<span style="font-size:1.5em;">Section B</span> 
+
+Use the function label of package Hmisc to tag variables (using the data frame sea.deep).
+
+<strong><span style="font-size:1.2em;">Answer</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+#Exercici 1b
+library(Hmisc)
+
+# Assign labels to each column
+label(sea.deep$Month) <- "Month and Year of Observation"
+label(sea.deep$Depth) <- "Depth in meters (m)"
+label(sea.deep$Temperature) <- "Sea Temperature in Celsius (°C)"
+label(sea.deep$Year) <- "Year of Observation"
+label(sea.deep$Type) <- "Type of Data (Current Year or Historical)"
+
+# Check the labels
+describe(sea.deep)
+
+```
+
+<span style="font-size:1.5em;">Section C</span> 
+
+Indicate the dimension of the data-frame and make a descriptive of the variables.
+
+<strong><span style="font-size:1.2em;">Answer</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+#Exercici 1c
+
+dim(sea.deep)
+
+sea.deep$Temperature <- as.numeric(sub(",", ".", sea.deep$Temperature))
+summary(sea.deep)
+str(sea.deep)
+
+```
+
+As we can see, the data consists of 2392 rows and 5 columns. 
+Columns:
+1. Month: This first column indicates the period of the data in each row. It is a complex column, as there are 4 types of data in this column. We have data for each month in each year specifically (Gener-2000), on the other hand, we also have the annual average for each year. (Annual mean-2000), another different type of data is the monthly mean (only for one month) in an interval of years (Gener-Period 1974-1999) in this case is the average of all the months of January within that interval of years. Finally, we have the annual mean of a whole period (Annual mean-Period 1974-1999).
+2. Depth: The Depth column indicates the depth at which the data in that row is taken. We have 4 different depths: 0 meters, -20 meters, -50 meters and -80 meters. This is why each date in the first column will be quadrupled, one for each depth value.
+3. Temperature: the temperature column indicates the temperature of the water in each of the measurements, it is represented in degrees Celsius.
+4. Year: The year indicates the year in which the observation was taken.
+5. Type: This last column indicates the type of data we are dealing with. We see two different types: Current year for those rows in which the observation is punctual in a month and year or an average of a specific year, and, on the other hand, Historical for those rows with observations that represent a time interval, whether it is an average of a month in a period or an annual average over a range of years.
+
+As demonstrated by the size of the data frame, it is very large, however, for each exercise, we will choose the data that interests us to carry out the exercise.
+
+<span style="font-size:1.5em;">Section D</span> 
+
+Represent by means of Boxplots the average temperatures by depth and year.
+
+<strong><span style="font-size:1.2em;">Answer</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+#Exercici 1d
+
+library(dplyr)
+
+filter_sea_deep <- function(depth) {
+  result <- sea.deep %>%
+    filter(!grepl("Mitjana", Month), Depth == depth, Type == "Current Year") %>%
+    select(-c(1, 2, 5)) %>%
+    select(Year, everything())
+  
+  return(result)
+}
+
+sea_deep_0 <- filter_sea_deep("Depth_0")
+sea_deep_20 <- filter_sea_deep("Depth_-20")
+sea_deep_50 <- filter_sea_deep("Depth_-50")
+sea_deep_80 <- filter_sea_deep("Depth_-80")
+
+library(readr)
+sea_deep_0$Temperature <- as.numeric(gsub(",", ".", sea_deep_0$Temperature))
+sea_deep_20$Temperature <- as.numeric(gsub(",", ".", sea_deep_20$Temperature))
+sea_deep_50$Temperature <- as.numeric(gsub(",", ".", sea_deep_50$Temperature))
+sea_deep_80$Temperature <- as.numeric(gsub(",", ".", sea_deep_80$Temperature))
+
+
+library(ggplot2)
+
+plot_boxplot <- function(data, depth) {
+  p <- ggplot(data, aes(x = as.factor(Year), y = Temperature)) +
+    geom_boxplot(fill = "lightblue") +  # Cambiar el color de los boxplots a azul claro
+    stat_summary(fun = mean, geom = "point", shape = 18, size = 2, color = "red", position = position_dodge(0.75)) +
+    stat_summary(fun.data = mean_cl_normal, geom = "text", aes(label = sprintf("%.2f", ..y..)), vjust = -0.7, 
+                 size = 3, position = position_dodge(0.75)) +
+    labs(title = paste("Boxplot of Temperatures by Year with Averages for Depth", depth), x = "Year", y = "Temperature")
+  
+  return(p)
+}
+
+plot_boxplot(sea_deep_0, "0")
+plot_boxplot(sea_deep_20, "-20")
+plot_boxplot(sea_deep_50, "-50")
+plot_boxplot(sea_deep_80, "-80")
+
+```
+
+
+With these boxplots we can see the interquartile range, as well as the first quartile, the lower part of the boxplot, the third quartile, the upper part of the boxplot, the median represented as a line within each boxplot and, in addition, we have added the mean, represented with a red dot and its value. Outliers can also be observed, represented by black dots at the ends of each plot. The whiskers on the graphs are used to detect outliers, which cannot be greater than 150% of the interquartile range.
+
+Comparing the 4 plots, we observe how the first two plots (depth_0 and depth_20), have wider boxplots than those of depth_50 and depth_80, which is completely logical since the range of temperature values in shallower waters must vary more than in deeper waters, due to the effect of the sun or atmospheric heat.
+
+<span style="font-size:1.5em;">Section E</span> 
+
+Calculate the mean, median, standard deviation and the interquartile range for each of the previous groups (or other statistics if necessary) . You can present other statistics suitable for this type of data, which you think are convenient.
+
+<strong><span style="font-size:1.2em;">Answer</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+#Exercici 1e
+
+library(dplyr)
+
+calculate_statistics_by_year <- function(data, depth) {
+  result <- data %>%
+    group_by(Year) %>%
+    summarise(
+      Mean_Temperature = mean(Temperature),
+      Median_Temperature = median(Temperature),
+      SD_Temperature = sd(Temperature),
+      IQR_Temperature = IQR(Temperature),
+      Min_Temperature = min(Temperature),
+      Max_Temperature = max(Temperature),
+      Q10_Temperature = quantile(Temperature, 0.1),
+      Q90_Temperature = quantile(Temperature, 0.9)
+    )
+  
+  # Rename the result columns to include the depth information
+  names(result) <- paste(names(result), depth, sep = "_")
+  
+  return(result)
+}
+
+
+statistics_by_year_0 <- calculate_statistics_by_year(sea_deep_0, "_Depth_0")
+statistics_by_year_20 <- calculate_statistics_by_year(sea_deep_20, "_Depth_-20")
+statistics_by_year_50 <- calculate_statistics_by_year(sea_deep_50, "_Depth_-50")
+statistics_by_year_80 <- calculate_statistics_by_year(sea_deep_80, "_Depth_-80")
+
+statistics_by_year_0
+statistics_by_year_20
+statistics_by_year_50
+statistics_by_year_80
+
+```
+
+We calculate the mean, median, standard deviation, interquartile range, maximum, minimum, 10-quantile and 90-quantile for each of the depths. If we compare each of these values with the boxplots previously done, we can see how the data agree. In the previous exercise, we saw the data in a more visual way, while in this exercise, the data is shown numerically.
+
+
+<span style="font-size:1.5em;">Section F</span> 
+
+Properly represent the data to be able to see the annual variations of the average temperature in
+the total depths and years.
+
+<strong><span style="font-size:1.2em;">Answer</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+#Exercici 1f
+
+library(dplyr)
+library(ggplot2)
+
+calculate_average_temperature_by_year <- function(df, depth) {
+  return(df %>%
+           group_by(Year) %>%
+           summarise(Average_Temperature = mean(Temperature)))
+}
+
+plot_average_temperature_variation <- function(df, depth) {
+  return(ggplot(df, aes(x = as.factor(Year), y = Temperature, group = Year)) +
+           geom_line(stat = "summary", fun.y = "mean", size = 1, color = "blue") +
+           geom_point(stat = "summary", fun.y = "mean", size = 3, color = "red") +
+           labs(title = sprintf("Annual Average Temperature Variations for depth %s", depth), x = "Year", y = "Average Temperature") +
+           theme_minimal())
+}
+
+average_temperature_by_year_0 <- calculate_average_temperature_by_year(sea_deep_0, "0")
+plot_0 <- plot_average_temperature_variation(sea_deep_0, "0")
+average_temperature_by_year_20 <- calculate_average_temperature_by_year(sea_deep_20, "-20")
+plot_20 <- plot_average_temperature_variation(sea_deep_20, "-20")
+average_temperature_by_year_50 <- calculate_average_temperature_by_year(sea_deep_50, "-50")
+plot_50 <- plot_average_temperature_variation(sea_deep_50, "-50")
+average_temperature_by_year_80 <- calculate_average_temperature_by_year(sea_deep_80, "-80")
+plot_80 <- plot_average_temperature_variation(sea_deep_80, "-80")
+
+
+print(average_temperature_by_year_0)
+print(plot_0)
+print(average_temperature_by_year_20)
+print(plot_20)
+print(average_temperature_by_year_50)
+print(plot_50)
+print(average_temperature_by_year_80)
+print(plot_80)
+
+```
+
+In this first part we calculate the average temperature per year. Then we create a dot plot of the calculated average temperature per year. Looking at the graph you can see an increasing trend over the years.
+
+
+```{r message=FALSE, warning=FALSE}
+
+calculate_and_print_differences <- function(average_temperature_by_year, depth) {
+  differences <- average_temperature_by_year %>%
+    group_by(Year) %>%
+    summarise(Mean_Temperature = mean(Average_Temperature)) %>%
+    mutate(Difference = Mean_Temperature - lag(Mean_Temperature))
+  
+  print(differences)
+  
+  return(differences)
+}
+
+differences_0 <- calculate_and_print_differences(average_temperature_by_year_0, "0")
+differences_20 <- calculate_and_print_differences(average_temperature_by_year_20, "-20")
+differences_50 <- calculate_and_print_differences(average_temperature_by_year_50, "-50")
+differences_80 <- calculate_and_print_differences(average_temperature_by_year_80, "-80")
+
+plot_differences <- function(differences, depth) {
+  ggplot(differences, aes(x = factor(Year), y = Difference, fill = factor(Year))) +
+    geom_bar(stat = "identity", position = "dodge", color = "white") +
+    labs(title = sprintf("Differences between Consecutive Year Averages for Depth %s", depth), x = "Year", y = "Means Difference") +
+    theme_minimal()
+}
+
+plot_differences_0 <- plot_differences(differences_0, "0")
+plot_differences_20 <- plot_differences(differences_20, "-20")
+plot_differences_50 <- plot_differences(differences_50, "-50")
+plot_differences_80 <- plot_differences(differences_80, "-80")
+
+print(plot_differences_0)
+print(plot_differences_20)
+print(plot_differences_50)
+print(plot_differences_80)
+
+```
+
+In this second part we calculate the differences in average temperatures between consecutive years. Generates a data frame with the year, the average temperature and another column with the differences with the previous year, that is why the first value of this third column is always NA. This is why the first value of this third column is always NA, since for the year 2000 we have no previous data to calculate the difference.
+These graphs plot the differences calculated above, we can see that there is no clear trend. There are negative and positive differences.
+
+```{r message=FALSE, warning=FALSE}
+
+año_base <- 2000
+
+library(ggplot2)
+
+calculate_and_plot_variations <- function(df, depth) {
+  variaciones_por_año <- df %>%
+    mutate(Variacion = Average_Temperature - filter(df, Year == año_base)$Average_Temperature)
+  
+  print(variaciones_por_año)
+  
+  ggplot(variaciones_por_año, aes(x = factor(Year), y = Variacion, fill = factor(Year))) +
+    geom_bar(stat = "identity", position = "dodge", color = "white") +
+    labs(title = sprintf("Average Temperature Variations per Year depth %s (vs. 2000)", depth), x = "Year", y = "Average Temperature Variation") +
+    theme_minimal()
+}
+
+plot_depth_0 <- calculate_and_plot_variations(average_temperature_by_year_0, "0")
+plot_depth_20 <- calculate_and_plot_variations(average_temperature_by_year_20, "-20")
+plot_depth_50 <- calculate_and_plot_variations(average_temperature_by_year_50, "-50")
+plot_depth_80 <- calculate_and_plot_variations(average_temperature_by_year_80, "-80")
+
+print(plot_depth_0)
+print(plot_depth_20)
+print(plot_depth_50)
+print(plot_depth_80)
+
+```
+
+For this reason, we are going to carry out the same analysis but, in this case, calculate the differences of each year with respect to a base year, 2000. We see from the plot that the differences with respect to 2000 are all positive, for example, the temperature is higher.
+However, the height of the bars as the years go by is influenced by the bars of the previous years, for example, if we first have a very high bar and then a very high bar, the temperature is higher. A very high bar and then a lower but also positive bar does not mean that the difference in the amount of the first bar has increased first and then of the second bar, but that the two years separately have a positive difference with respect to 2000. It could even be interpreted that if there is a high bar and then a lower bar, the difference between these two years is negative, on the contrary, if there is a lower bar and then a higher bar, the difference between those two consecutive years is positive.
+
+<span style="font-size:1.5em;">Section G</span> 
+
+Export data frame with the new variables created to a new file sheet, for example in NUEVO.xlsx.
+
+<strong><span style="font-size:1.2em;">Answer</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+#Exercici 1g
+
+library(dplyr)
+
+resultado_0 <- cbind(statistics_by_year_0,differences_0)
+resultado_0 <- resultado_0 %>%
+  select(unique(names(.)))%>%
+  mutate(Nueva_Columna = "Depth_0")
+nom_resultado_0 <- c("Year", "Mean_Temperature", "Median_Temperature", "SD_Temperature", "IQR_Temperature", "Min_Temperature", "Max_Temperature", "Q10_Temperature", "Q90_Temperature", "Year",
+                     "Mean_Temperature", "Difference", "Nueva_Col")
+colnames(resultado_0) <- nom_resultado_0
+
+resultado_20 <- cbind(statistics_by_year_20,differences_20)
+resultado_20 <- resultado_20 %>%
+  select(unique(names(.)))%>%
+  mutate(Nueva_Columna = "Depth_-20")
+colnames(resultado_20) <- nom_resultado_0
+
+resultado_50 <- cbind(statistics_by_year_50,differences_50)
+resultado_50 <- resultado_50 %>%
+  select(unique(names(.)))%>%
+  mutate(Nueva_Columna = "Depth_-50")
+colnames(resultado_50) <- nom_resultado_0
+
+resultado_80 <- cbind(statistics_by_year_80,differences_80)
+resultado_80 <- resultado_80 %>%
+  select(unique(names(.)))%>%
+  mutate(Nueva_Columna = "Depth_-80")
+colnames(resultado_80) <- nom_resultado_0
+
+resultado <- bind_rows(resultado_0, resultado_20, resultado_50, resultado_80)
+head(resultado)
+
+library(openxlsx)
+write.xlsx(resultado, file = "NUEVO.xlsx", sheetName = "Sheet1", colNames = TRUE)
+
+```
+
+In this exercise, we gather the data calculated in the previous exercises and put them together in a single data frame so that we can later export it to excel.
+
+<center> <span style="font-size:1.7em;">Exercise 2</span></center> 
+<span style="font-size:1.5em;">Section A</span> 
+
+Make two or more graphs with the data from Exercise 1 using functions from two of the following
+packages: gplots, plotrix, vcd. For (at least) one of the two graphs you should use the study group variable (depth or year) and for the other one a couple of the numerical variables. Present the syntax and interpret both graphs.
+
+<strong><span style="font-size:1.2em;">Answer</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+#Exercici 2
+
+library(plotrix)
+library(gplots)
+
+#using a function of plotrix: ablineclip
+
+lmfit_0<-lm(resultado$Mean_Temperature...2[1:23]~resultado$Year...1[1:23])
+lmfit_20<-lm(resultado$Mean_Temperature...2[24:46]~resultado$Year...1[24:46])
+lmfit_50<-lm(resultado$Mean_Temperature...2[47:69]~resultado$Year...1[47:69])
+lmfit_80<-lm(resultado$Mean_Temperature...2[70:92]~resultado$Year...1[70:92])
+
+plot(resultado$Year...1,resultado$Mean_Temperature...2)
+ablineclip(lmfit_0, x1 = 2000, x2 = 2022, lty = 8,col="blue")
+ablineclip(lmfit_20, x1 = 2000, x2 = 2022, lty = 8, col="red")
+ablineclip(lmfit_50, x1 = 2000, x2 = 2022, lty = 8, col="green")
+ablineclip(lmfit_80, x1 = 2000, x2 = 2022, lty = 8, col= "orange")
+```
+
+In this first graph, we plot all the average temperatures for the different years. We do not distinguish any depth but, later, when we do the ablineclip, we plot the line that best fits each temperature according to depth (without knowing which group each point is from). However, we are interested to see the inclination of these 4 lines, which are positive, a fact that makes us think that the temperature is positive. That makes us think that the temperature is increasing over the years, a warning sign of global warming.
+
+```{r message=FALSE, warning=FALSE}
+#Exercici 2
+
+#using a function of gplots: hist2d
+hist2d(resultado$IQR_Temperature,resultado$SD_Temperature)
+
+hist2d(resultado$IQR_Temperature[1:23],resultado$SD_Temperature[1:23])
+hist2d(resultado$IQR_Temperature[24:46],resultado$SD_Temperature[24:46])
+hist2d(resultado$IQR_Temperature[47:69],resultado$SD_Temperature[47:69])
+hist2d(resultado$IQR_Temperature[70:92],resultado$SD_Temperature[70:92])
+```
+
+With this second graph, we plot the relationship between the IQR and the SD, both of temperature. We can see a clear positive relationship between these two numerical variables: the higher the interquartile range, the higher the variance, which is completely normal. However, we can observe 2 groups of points in the graph. The points closest to the point (0,0) belong to the temperature data of the observations. Depth -50 and Depth -80, on the other hand, the furthest ones are the Depth -20 and Depth 0 groups. At shallower depths, the temperature variances are higher, as is the interquartile range, while in deeper water, the opposite is true. To demonstrate this, we then create the 4 plots of the 4 different depths. Looking at the axes of each graph, you can see the difference in values.
+
+
+<center> <span style="font-size:1.7em;">Exercise 3</span></center> 
+<span style="font-size:1.5em;">Section A</span> 
+
+Calculate the temperature between one month and the following month (eg January and February) for each year and depth, offer a graph per year and the average of all years studied. You should be able to indicate what years or depths it should represent.
+
+<strong><span style="font-size:1.2em;">Answer</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+#Exercici 3a
+process_and_graph_sea_temp <- function(sea.deep, year = NULL, depth = NULL, type = NULL) {
+  # Load necessary libraries
+  library(dplyr)
+  library(lubridate)
+  library(ggplot2)
+  
+  # Duplicate the original dataframe
+  sea.deep_copy <- sea.deep
+  
+  # Data preprocessing steps
+  sea.deep_copy <- sea.deep_copy %>%
+    mutate(Temperature = as.numeric(gsub(",", ".", Temperature))) %>%
+    mutate(Month = gsub("-[0-9]{4}", "", Month))
+  
+  # Filter and sort the data
+  sea.deep_filtered <- sea.deep_copy %>%
+    filter(!grepl("Mitjana", Month)) %>%
+    mutate(Year_Month = make_date(Year, match(Month, month.abb), 1)) %>%
+    arrange(Year_Month, Depth, Type)
+  
+  # Calculate the temperature difference
+  sea.deep_diff <- sea.deep_filtered %>%
+    group_by(Depth, Type) %>%
+    mutate(Temp_Diff = c(NA, diff(Temperature))) %>%
+    ungroup() %>%
+    select(-Year_Month)
+  
+  # Define month order
+  month_order <- c("Gener", "Febrer", "Març", "Abril", "Maig", "Juny", 
+                   "Juliol", "Agost", "Setembre", "Octubre", "Novembre", "Desembre")
+  
+  # Filter out rows with missing or incorrect Month values
+  sea.deep_diff <- sea.deep_diff %>%
+    filter(Month %in% month_order)
+  
+  # Create graph based on the input parameters
+  if (!is.null(year)) {
+    # Specific year graph
+    filtered_data <- sea.deep_diff %>%
+      filter(Year == year, Depth == depth, Type == type) %>%
+      mutate(Month = factor(Month, levels = month_order)) %>%
+      drop_na(Temp_Diff)
+    
+    graph <- ggplot(filtered_data, aes(x = Month, y = Temp_Diff, fill = Temp_Diff)) +
+      geom_col() +
+      scale_fill_gradient(low = "green", high = "red") +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1),
+            legend.position = "none") +
+      ggtitle(paste("Temperature Difference for", depth, "in", year, "-", type)) +
+      xlab("Month") +
+      ylab("Temperature Difference (°C)")
+  } else {
+    # Average temperature difference graph
+    avg_temp_diff <- sea.deep_diff %>%
+      group_by(Month) %>%
+      summarise(Avg_Temp_Diff = mean(Temp_Diff, na.rm = TRUE)) %>%
+      mutate(Month = factor(Month, levels = month_order))
+    
+    graph <- ggplot(avg_temp_diff, aes(x = Month, y = Avg_Temp_Diff, fill = Avg_Temp_Diff)) +
+      geom_col() +
+      scale_fill_gradient2(low = "green", high = "red", mid = "yellow", midpoint = 0) +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1),
+            legend.position = "none") +
+      ggtitle("Average Temperature Difference") +
+      xlab("Month") +
+      ylab("Average Temperature Difference (°C)")
+  }
+  
+  return(graph)
+}
+```
+
+
+The function begins by transforming the Temperature column from a text format to numeric. Then it extracts only the month names from the Month column, omitting rows labeled 'Mitjana Anual' which do not fit the intended analysis.
+
+A critical part of the script involves calculating the temperature differences between consecutive months. For this, the function creates a new column Year_Month for easier sorting and organizes the data by this column, Depth, and Type. It computes the temperature change between each month, assigning NA to the first entry of each group (like Gener 2000) because there's no preceding month for comparison (as in the case of a missing Desembre 1999).
+
+The function then proceeds to create graphs based on specified parameters. When a specific year, depth, and type are selected, the function filters the data accordingly and uses ggplot2 to create a visualization. This graph shows the temperature changes for each month of the chosen year. If no year is specified, the function produces a graph displaying the average temperature change across all years/depths. The visualizations use a color gradient to represent temperature changes, making it easy to identify and understand trends in the data.
+
+This function effectively handles data processing and visualization, providing a flexible tool for analyzing sea temperature changes over time based on different parameters. The use of color gradients in the graphs enhances the interpretability of the temperature changes.
+
+<strong><span style="font-size:1em;">Example 1:Graph for year 2001, depth "Depth_-20", type "Current Year"</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+# Example: Graph for year 2001, depth "Depth_-20", type "Current Year"
+graph_2001_20m_Current <- process_and_graph_sea_temp(sea.deep, 2001, "Depth_-20", "Current Year")
+print(graph_2001_20m_Current)
+```
+
+<strong><span style="font-size:1em;">Example 2:Average temperature difference for all years</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+# Example: Average temperature difference for all years
+graph_all_avg <- process_and_graph_sea_temp(sea.deep)
+print(graph_all_avg)
+```
+
+<strong><span style="font-size:1em;">Example 3: Average temperature difference for all years of type "Current Year"</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+# Example: Average temperature difference for all years of type "Current Year"
+graph_type_avg <- process_and_graph_sea_temp(sea.deep, type = "Current Year")
+print(graph_type_avg)
+```
+
+<strong><span style="font-size:1em;">Example 4:Average temperature difference for all years at depth "Depth_0" and type "Current Year"</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+# Example: Average temperature difference for all years at depth "Depth_0" and type "Current Year"
+graph_depth_type_avg <- process_and_graph_sea_temp(sea.deep, depth = "Depth_0", type = "Current Year")
+print(graph_depth_type_avg)
+```
+
+
+<span style="font-size:1.5em;">Section B</span> 
+
+Calculate the difference between the temperature of each month and the same month of the previous 30 years (example: January 2000 and January period 1974-1999), offer a graph for each year and the average of All years studied. You should be able to indicate what year or depths it should represent.
+
+<strong><span style="font-size:1.2em;">Answer</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+#Exercise 3b
+
+firstFinalResult <- NULL
+plot_temperature_diff <- function(sea.deep, year = NULL, depth = NULL) {
+  # Copy the original sea.deep dataframe
+  sea.deep_copy2 <- sea.deep
+  
+  # Convert Temperature to numeric
+  sea.deep_copy2$Temperature <- as.numeric(gsub(",", ".", sea.deep_copy2$Temperature))
+  
+  # Process the Month column for current_data
+  current_data <- sea.deep_copy2 %>% filter(Type == "Current Year") %>% select(-Type)
+  current_data$Month <- gsub("-[0-9]{4}", "", current_data$Month)
+  
+  # Process the Month column for historical_data
+  historical_data <- sea.deep_copy2 %>% filter(Type == "Historical") %>% select(-Type)
+  historical_data$Month <- gsub("-Període [0-9]{4}-[0-9]{4}", "", historical_data$Month)
+  
+  # Define the order of months and 'Mitjana anual'
+  month_order <- c("Gener", "Febrer", "Març", "Abril", "Maig", "Juny", 
+                   "Juliol", "Agost", "Setembre", "Octubre", "Novembre", 
+                   "Desembre", "Mitjana anual")
+  
+  # Initialize an empty list to store results
+  results_list <- list()
+  
+  # Iterate over each year and depth
+  for (yr in unique(current_data$Year)) {
+    for (dpth in unique(current_data$Depth)) {
+      # Filter current and historical data for the year and depth
+      current_filtered <- filter(current_data, Year == yr, Depth == dpth)
+      historical_filtered <- filter(historical_data, Year == yr, Depth == dpth)
+      
+      # Merge the filtered data on Month and Depth
+      merged_data <- merge(current_filtered, historical_filtered, 
+                           by = c("Month", "Depth"), 
+                           suffixes = c("_Current", "_Historical"))
+      
+      # Arrange the merged data by Month
+      merged_data <- merged_data %>%
+        mutate(Month = factor(Month, levels = month_order)) %>%
+        arrange(Month)
+      
+      # Calculate temperature difference
+      merged_data$Temp_Diff_30yr <- merged_data$Temperature_Current - merged_data$Temperature_Historical
+      
+      # Add the merged data to the results list
+      results_list[[paste(yr, dpth, sep = "_")]] <- merged_data
+    }
+  }
+  
+  # Combine all results into a single data frame
+  final_result <- do.call(rbind, results_list)
+  
+  # Some additional transformations
+  final_result <- final_result[-6]
+  final_result <- final_result[c(1:2, 4, 3, 5:ncol(final_result))]
+  if (is.null(firstFinalResult)) {
+          firstFinalResult <<- final_result
+          message("First dataset result saved.")
+      }
+  # Plotting
+  if (!is.null(year) && !is.null(depth)) {
+    data <- subset(final_result, Year_Current == year & Depth == depth)
+  } else if (!is.null(year)) {
+    # Specific year, all depths
+    data <- subset(final_result, Year_Current == year)
+    data <- aggregate(Temp_Diff_30yr ~ Month, data = data, FUN = mean, na.rm = TRUE)
+  } else if (!is.null(depth)) {
+    # Specific depth, all years
+    data <- subset(final_result, Depth == depth)
+    data <- aggregate(Temp_Diff_30yr ~ Month, data = data, FUN = mean, na.rm = TRUE)
+  } else {
+    # Average across all years and depths
+    data <- aggregate(Temp_Diff_30yr ~ Month, data = final_result, FUN = mean, na.rm = TRUE)
+  }
+  
+  ggplot(data, aes(x = Month, y = Temp_Diff_30yr, fill = Temp_Diff_30yr)) +
+    geom_bar(stat = "identity") +
+    scale_fill_gradient2(low = "green", high = "red", mid = "yellow", midpoint = 0) +
+    labs(title = "Temperature Differences", x = "Month", y = "Temperature Difference (°C)") +
+    theme_minimal() +
+    theme(legend.position = "none")
+}
+
+```
+
+
+The function begins by creating a copy of the original sea.deep dataset, named sea.deep_copy2. The Temperature column in this copied dataset is then converted from text to numeric format, facilitating numerical analysis.
+
+The script processes the Month column separately for two subsets of the data: current_data (representing the current year's data) and historical_data (representing historical data spanning 30 years). It extracts just the month names in both subsets for consistent comparison.
+
+The function sets the correct order of months, including 'Mitjana anual', and initializes an empty list, results_list, to store the results of the analysis.
+
+In the core analytical part of the script, it iterates over each year and depth. For each combination, it filters the current and historical data, then merges them based on the month and depth. The merged data is used to calculate the temperature difference between the current year and the historical average for the same month.
+
+After completing all calculations, the results are combined into a single dataframe, final_result, with additional transformations for better clarity and organization.
+
+After that, the function proceeds to create graphs that visually represent these temperature differences. It offers flexibility in generating graphs for specific years, depths, or an average across all years and depths. The graphs are created using ggplot2 and employ a color gradient to visually indicate the magnitude of temperature differences. This visualization aids in easy interpretation of the data, highlighting significant trends and anomalies in sea temperature changes over time.
+
+<strong><span style="font-size:1em;">Example 1:Specific year and depth</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+plot_temperature_diff(sea.deep, year=2000, depth = "Depth_0") # Specific year and depth
+```
+
+<strong><span style="font-size:1em;">Example 2:Specific year, all depths</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+plot_temperature_diff(sea.deep, year = 2000)# Specific year, all depths
+
+```
+
+<strong><span style="font-size:1em;">Example 3: Specific depth, all years</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+plot_temperature_diff(sea.deep, depth = "Depth_0") # Specific depth, all years
+```
+
+<strong><span style="font-size:1em;">Example 4: Average across all years and depths</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+plot_temperature_diff(sea.deep) # Average across all years and depths
+```
+
+
+
+<span style="font-size:1.5em;">Section C</span> 
+
+Verify the operation of the function with the data frame sea.deep and ensure that everything is correct (optionally you can invent a data frame to verify it, with simulated temperatures using a normal truncated distribution of temperatures and with the same depths).
+
+<strong><span style="font-size:1.2em;">Answer</span></strong>
+
+Assuming you are referring to the functions process_and_graph_sea_temp() and plot_temperature_diff()) presented in section 3A and 3B respectively:
+
+<strong>3A: process_and_graph_sea_temp() function</strong>
+
+```{r message=FALSE, warning=FALSE}
+#Exercise 3c
+simulate_sea_temperature_data <- function(n_years = 2, start_year = 2000, temp_range = c(10, 25)) {
+  # Load necessary libraries
+  library(truncnorm)
+  library(dplyr)
+  
+  # Define depths and months
+  depths <- c("Depth_0", "Depth_-20", "Depth_-50", "Depth_-80")
+  months <- c("Gener", "Febrer", "Març", "Abril", "Maig", "Juny", 
+              "Juliol", "Agost", "Setembre", "Octubre", "Novembre", "Desembre")
+  
+  # Function to simulate data for a year and depth
+  simulate_year_data <- function(year, depth) {
+    data.frame(
+      Month = months,
+      Depth = depth,
+      Temperature = round(rtruncnorm(length(months), a = temp_range[1], 
+                                     b = temp_range[2], mean = mean(temp_range), 
+                                     sd = (temp_range[2] - temp_range[1]) / 4), 1),
+      Year = year,
+      Type = "Current Year" # Assuming all data is of type "Current Year"
+    )
+  }
+  
+  # Simulate the data
+  simulated_data <- do.call(rbind, lapply(start_year:(start_year + n_years - 1), 
+                                          function(yr) do.call(rbind, lapply(depths, 
+                                                                             simulate_year_data, 
+                                                                             year = yr))))
+  
+  # Convert Temperature to numeric
+  simulated_data$Temperature <- as.numeric(simulated_data$Temperature)
+  
+  return(simulated_data)
+}
+
+
+simsea.deep3a <- simulate_sea_temperature_data()
+
+```
+
+The function starts by simulating parameters the years (n_years), the starting year (start_year), and a specified temperature range (temp_range), which defaults to 10 to 25 degrees Celsius.
+
+Depth levels and months of the year are predefined in the function. Depths are specified at various levels, and a range of months (from 'Gener' to 'Desembre') is listed. These define the dimensions along which the temperature data will be simulated.
+
+A key component of the function is simulate_year_data, an inner function designed to generate temperature data for a given year and depth. It uses the rtruncnorm function to create temperature values that follow a truncated normal distribution within the specified range. The mean of this distribution is set as the midpoint of the temp_range, and the standard deviation (SD) is a measure of variability around this mean within the range.
+
+The simulation process iterates over each year and depth. For each combination, simulate_year_data is called to generate temperature data, resulting in a comprehensive dataset (simulated_data) that mimics real-world temperature variations. This dataset serves as a stand-in for actual sea temperature data, enabling the testing of functions in a controlled environment.
+
+After the simulation, the function ensures that the Temperature column in simulated_data is in numeric format, enhancing its compatibility with subsequent processing and analysis.
+
+The function, simulate_sea_temperature_data, effectively creates a realistic dataset that can be used to test and demonstrate other functions, such as process_and_graph_sea_temp, under simulated conditions. This allows for the evaluation of these functions without the need for real-world data, facilitating development and testing in a controlled and predictable setting. Four examples are provided using the process_and_graph_sea_temp() function showcased in 3A with the new simulated dataset:
+
+
+<strong><span style="font-size:1em;">Example 1:Graph for year 2001, depth "Depth_-20", type "Current Year"</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+# Example: Graph for year 2001, depth "Depth_-20", type "Current Year"
+graph_2001_20m_Current <- process_and_graph_sea_temp(simsea.deep3a, 2001, "Depth_-20", "Current Year")
+print(graph_2001_20m_Current)
+```
+
+<strong><span style="font-size:1em;">Example 2:Average temperature difference for all years</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+# Example: Average temperature difference for all years
+graph_all_avg <- process_and_graph_sea_temp(simsea.deep3a)
+print(graph_all_avg)
+```
+
+<strong><span style="font-size:1em;">Example 3: Average temperature difference for all years of type "Current Year"</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+# Example: Average temperature difference for all years of type "Current Year"
+graph_type_avg <- process_and_graph_sea_temp(simsea.deep3a, type = "Current Year")
+print(graph_type_avg)
+```
+
+<strong><span style="font-size:1em;">Example 4:Average temperature difference for all years at depth "Depth_0" and type "Current Year"</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+# Example: Average temperature difference for all years at depth "Depth_0" and type "Current Year"
+graph_depth_type_avg <- process_and_graph_sea_temp(simsea.deep3a, depth = "Depth_0", type = "Current Year")
+print(graph_depth_type_avg)
+```
+
+
+
+<strong>3B: plot_temperature_diff() function</strong>
+
+```{r message=FALSE, warning=FALSE}
+simulate_sea_temperature_data_3b <- function(n_years = 2, start_year = 2000, temp_range = c(10, 25)) {
+  # Load necessary libraries
+  library(truncnorm)
+  library(dplyr)
+  
+  # Set seed for reproducibility
+  set.seed(111)
+  
+  # Define depths and months
+  depths <- c("Depth_0", "Depth_-20", "Depth_-50", "Depth_-80")
+  months <- c("Gener", "Febrer", "Març", "Abril", "Maig", "Juny", 
+              "Juliol", "Agost", "Setembre", "Octubre", "Novembre", "Desembre", "Mitjana anual")
+  
+  # Function to simulate a year of data for a given depth
+  simulate_year_data <- function(year, depth) {
+    data.frame(
+      Month = rep(months, each = 2),
+      Depth = depth,
+      Temperature = round(rtruncnorm(length(months) * 2, a = temp_range[1], 
+                                     b = temp_range[2], mean = mean(temp_range), 
+                                     sd = (temp_range[2] - temp_range[1]) / 4), 1),
+      Year = year,
+      Type = rep(c("Current Year", "Historical"), length(months))
+    )
+  }
+  
+  # Simulate data for each year and depth
+  simulated_data <- do.call(rbind, 
+                            lapply(start_year:(start_year + n_years - 1), 
+                                   function(yr) do.call(rbind, 
+                                                        lapply(depths, 
+                                                               simulate_year_data, 
+                                                               year = yr))))
+  
+  # Convert temperatures to character with commas
+  simulated_data$Temperature <- gsub("\\.", ",", as.character(simulated_data$Temperature))
+  
+  return(simulated_data)
+}
+
+
+simsea.deep3b <- simulate_sea_temperature_data_3b()
+```
+
+
+The simulate_sea_temperature_data function is designed to generate simulated sea temperature data based on specified parameters. The simulation parameters include the number of years (n_years), the starting year (start_year), and a specified temperature range (temp_range), which defaults to 10 to 25 degrees Celsius.
+
+Depth levels and months of the year are predefined in the function. Depths are specified at various levels, and a range of months (from 'Gener' to 'Desembre') is listed. These define the dimensions along which the temperature data will be simulated.
+
+Simulate_year_data, an inner function designed to generate temperature data for a given year and depth. It uses the rtruncnorm function to create temperature values that follow a truncated normal distribution within the specified range. The mean of this distribution is set as the midpoint of the temp_range, and the standard deviation (SD) is a measure of variability around this mean within the range.
+
+The simulation process iterates over each year and depth. For each combination, simulate_year_data is called to generate temperature data, resulting in a comprehensive dataset (simulated_data) that mimics real-world temperature variations. This dataset serves as a stand-in for actual sea temperature data, enabling the testing of functions in a controlled environment.
+
+After the simulation, the function ensures that the Temperature column in simulated_data is in numeric format, enhancing its compatibility with subsequent processing and analysis.
+
+The function, simulate_sea_temperature_data, effectively creates a realistic dataset that can be used to test and demonstrate other functions, such as process_and_graph_sea_temp, under simulated conditions. This allows for the evaluation of these functions without the need for real-world data, facilitating development and testing in a controlled and predictable setting.
+
+The plot_temperature_diff function is then demonstrated through four examples:
+
+<strong><span style="font-size:1em;">Example 1:Specific year and depth</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+plot_temperature_diff(simsea.deep3b, year=2000, depth ="Depth_0") # Specific year and depth
+```
+
+<strong><span style="font-size:1em;">Example 2:Specific year, all depths</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+plot_temperature_diff(simsea.deep3b, year=2000) # Specific year, all depths
+```
+
+<strong><span style="font-size:1em;">Example 3: Specific depth, all years</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+plot_temperature_diff(simsea.deep3b, depth = "Depth_0") # Specific depth, all years
+```
+
+<strong><span style="font-size:1em;">Example 4: Average across all years and depths</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+plot_temperature_diff(simsea.deep3b) # Average across all years and depths
+```
+
+<strong>Note: There is no pattern in the temperatures of any of the simulated datasets, which is in line with what we would expect from a normal (truncated or not) distribution. The values are randomly distributed (within the specified range), with the likelihood of occurrence decreasing as you move away from the mean.</strong>
+
+
+<span style="font-size:1.5em;">Section D</span> 
+
+Comment on the results found and if you think they have effects on climate change. Optionally, you can build a library to project the future of seawater temperature at a certain temperature for the following years.
+
+<strong><span style="font-size:1.2em;">Answer</span></strong>
+
+Well, we produced two sets of results (Section 3A and 3B respectively):
+
+<strong>* Current month vs previous month (3A):</strong> This reflects short-term and seasonal climate patterns, which are important for understanding the immediate climate dynamics but less indicative of long-term climate change trends.
+
+If we take a look at the averages graph, we see that it primarily reflects the seasonal variation in temperature, that is, we see a pattern of increasing temperatures from winter to summer months and then a decrease as it moves into autumn and winter again, which is in line with what we would expect (single year/depth also have this pattern with some exceptions).
+
+<strong>* Current month vs same month of the previous 30 years:</strong> This type of comparison is more indicative of long-term climate trends.  If there is a general increase in temperatures over the years for a given month, it would suggest a warming trend. If we take a look at the four graphs generated in the examples, we can see that the last two, which show the average across all years with specific depth and all years for all depths, the temperature increases are consistent across all months (in the order of 0.4-0.6 degrees). 
+
+When looking at the second graph (specific year, all depths), we can also see how, except January and April, all months experience increases in temperature when compared to the same months 30 years before. When looking at the first graph (specific year and depth), the increase in temperature is more inconsistent (due to less data), but still 9 out of 12 months experience increases, with only two experiencing decreases likely due to short term variation. Still, in the long term and especially when taking all year averages we can see that for all months, all temperatures experienced a consistent increase over the last period of 30 years.
+
+After this visual inspection of the temperature differences, we can tentatively conclude that there is a solid case for the central argument of climate change, that is, that GHG emissions increasing temperatures on earth. This increase in worldwide temperatures is also invariably affecting (negatively) marine ecosystems, with the average of marine temperatures being increased between an average of 0.4-0.6 degrees Celsius in the last 30 years (with variability when accounting for different years or depths).
+
+With that being said, it is also important to note that strictly statistically speaking, we would have to perform some additional tests to check whether this difference is statistically significant or not. But since this is not what it is asked in the exercise we will not perform this analysis. We will assume, based on the visual inspection, that temperatures have indeed increased over the last period of 30 years based on the data we have (sea.deep dataframe).
+
+<strong><span style="font-size:1.2em;">Projecting the future of seawater temperature: An ARIMA based approach</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+#build a library to project the future of seawater temperature at a certain temperature for
+#the following years
+
+library(forecast)
+final_result1<- firstFinalResult
+
+forecast_sarima <- function(data, column_name, depth_value=NULL) {
+  # Exclude 'Mitjana anual' rows from the dataset
+  data_filtered <- data[data$Month != "Mitjana anual", ]
+  
+  # Filter by depth if a specific depth is provided
+  if (!is.null(depth_value)) {
+    data_filtered <- data_filtered[data_filtered$Depth == depth_value, ]
+  }
+  
+  # Create a mapping for the months
+  month_mapping <- setNames(1:12, c("Gener", "Febrer", "Març", "Abril", "Maig", "Juny", 
+                                    "Juliol", "Agost", "Setembre", "Octubre", "Novembre", "Desembre"))
+  
+  # Replace month names with numeric values
+  data_filtered$MonthNum <- month_mapping[as.character(data_filtered$Month)]
+  
+  # Create YearMonth variable
+  data_filtered$YearMonth <- with(data_filtered, paste(Year_Current, MonthNum, sep = "-"))
+  
+  # Aggregate the specified column
+  avg_data <- aggregate(data_filtered[[column_name]] ~ YearMonth, data = data_filtered, mean, na.rm = TRUE)
+  
+  # Extract Year and Month from YearMonth
+  avg_data$Year <- as.numeric(sapply(strsplit(avg_data$YearMonth, "-"), `[`, 1))
+  avg_data$Month <- as.numeric(sapply(strsplit(avg_data$YearMonth, "-"), `[`, 2))
+  
+  # Remove rows where Month is NA
+  avg_data <- avg_data[!is.na(avg_data$Month), ]
+  
+  # Sort the data by Year and Month
+  avg_data <- avg_data[order(avg_data$Year, avg_data$Month), ]
+  
+  # Create the time series object
+  start_year <- min(avg_data$Year)
+  start_month <- min(avg_data$Month[avg_data$Year == start_year])
+  ts_data <- ts(avg_data[[2]], start = c(start_year, start_month), frequency = 12)
+  
+  # Fit a SARIMA model
+  fit_model <- auto.arima(ts_data)
+  
+  # Calculate residuals
+  residuals_data <- residuals(fit_model)
+  
+  # Forecast
+  future_forecast <- forecast(fit_model, h = 50*12) # 50 years into the future
+  
+  # Plot the forecast
+  plot(future_forecast)
+  
+  # Return the model, forecast, and residuals
+  return(list(model = fit_model, forecast = future_forecast, residuals = residuals_data))
+}
+```
+
+<strong><span style="font-size:1.2em;">Projecting the future of seawater temperature: Checking how well each forecast is fit</span></strong>
+```{r message=FALSE, warning=FALSE}
+#Check how well each forecast is fit.
+perform_diagnostics <- function(model, residuals_data, variable_name) {
+  # TS Diagnostics Plot
+  tsdiag(model)
+  
+  # Residuals Plot
+  plot(residuals_data, main = paste("Residuals of", variable_name))
+  abline(h = 0, col = "red")
+  
+  # ACF and PACF of Residuals
+  acf(residuals_data, main = paste("ACF of", variable_name, "Residuals"))
+  pacf(residuals_data, main = paste("PACF of", variable_name, "Residuals"))
+  
+  # Shapiro-Wilk Normality Test
+  shapiro_test_result <- shapiro.test(residuals_data)
+  print(paste("Shapiro-Wilk Test for", variable_name, ": p-value =", shapiro_test_result$p.value))
+}
+
+```
+
+This R code is structured for two primary objectives: forecasting future sea water temperatures and conducting diagnostic checks on the forecasts. It utilizes the forecast package, which is widely recognized for its efficacy in time series analysis.
+
+The first part of the code defines the forecast_sarima function. This function is designed to project future sea water temperatures based on the provided data. The function operates by filtering the dataset to exclude rows marked as 'Mitjana anual' and, if specified, narrows down the data to a particular depth. The months are then mapped to numeric values to facilitate the processing. A YearMonth variable is created for data aggregation purposes, followed by calculating the average value of the chosen column for each month. Subsequently, this aggregated data is transformed into a time series object, essential for the forecasting process.
+
+The core of the function is fitting a Seasonal Autoregressive Integrated Moving Average (SARIMA) model using the auto.arima function. SARIMA models are particularly suited for data exhibiting seasonal trends, such as monthly temperature variations. The model is then used to forecast future values, extending up to 50 years into the future, with monthly forecasts being the focus (h = 50*12). The function not only plots these forecasts but also returns the model, the forecast, and the residuals, which represent the difference between observed and predicted values.
+
+The second part of the code involves the perform_diagnostics function, crucial for evaluating the accuracy and effectiveness of the fitted SARIMA models. This function conducts a series of diagnostic tests, including a tsdiag check to identify any potential issues with the model. It also analyzes the residuals, both visually and through their Autocorrelation Function (ACF) and Partial Autocorrelation Function (PACF), to determine if they exhibit randomness, an indicator of a well-fitted model. Additionally, the function performs the Shapiro-Wilk test to assess the normality of the residuals, a key assumption in many time series models.
+
+This comprehensive approach allows for an in-depth analysis of future sea water temperature trends and the robustness of these forecasts, providing valuable insights for long-term environmental and ecological planning.
+
+Four examples are presented below, with the interpretation of the corresponding SARIMA forecast. 
+
+<strong>Note: The interpretation and discussion of how well each model is fit is NOT included (beyond a line or two comment on the most important things) due to the length needed to discuss those aspects as well as the fact that this is not specifically asked in the exercise. However, if the reader is interested, a small guide has been added in the annex that could aid in interpreting the output of the perform_diagnostics() function.</strong> 
+
+<strong><span style="font-size:1em;">Example 1: Single depth and current temperature</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+result_depth_0 <- forecast_sarima(final_result1, "Temperature_Current", "Depth_0")
+```
+
+<strong>Comment:</strong> It seems that the prediction into the future for seawater temperatures using current temperatures and depth at 0 meters does not yield any significant trends. This result is most likely due to insufficient and inconsistent data. Each wave of the graph symbolizes one year, from the low peak temperature which happens during winter months (December, January, February) to the high peak of temperature which happens during summer months(July-August).
+
+If we take a close look at the graph, we can see how from 2000 to around 2007ish the low peaks during winter months seem to get progressively lower. It's not until 2010 onwards that the lower peaks seem to consistently increase in temperature. On the other hand, while the higher peaks seem to not have had any consistent downtrends, they haven't had a consistent and strong upward trend either, remaining somewhat inconsistent and overall flat, with a bit of upward tendency.
+
+In other words, it seems that the small upward tendency was not captured well by the model due to lack of data points as well as inconsistencies in the data. But what happens if we start aggregating the data on a year or depth basis?
+
+ 
+
+<strong><span style="font-size:1em;">Example 1: Checking how well the model fits</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+perform_diagnostics(result_depth_0$model, result_depth_0$residuals, "Temperature_Current at Depth_0")
+```
+
+
+<strong>Note: There is one spike of autocorrelation in the ACF graph that should warrant some attention. The Shappiro-Wilks test is significant, which means that the null hypothesis of normality is rejected. This also should warrant our attention, and some data transformation should be done to see if we can fit the model in a better way. However, due to the practical nature of this assignment, we think that this falls outside of what it is requested and thus we won't be making any further modifications (in a real world case scenario it would be very different though).</strong>
+
+<strong><span style="font-size:1em;">Example 2: All depths, temperature difference</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+result_diff <- forecast_sarima(final_result1, "Temp_Diff_30yr")
+```
+
+<strong>Comment:</strong> This SARIMA prediction, while it may seem "flat" and not provide any information at a first glance, in reality is well within expectations. The prediction is made out of aggregating all depths with the variable temperature difference, which is the difference between the current month and the temperature mean of the previous 20-30 year historical period. Up until 2022, the graph uses real data, and from then on it makes the prediction. The grey areas represent confidence intervals (95% and 99%) while the blue line represents the actual forecasted values from the model. If we look at the mean, we can see that the prediction is telling us that it will stay at around +0.5ºC for the next 50 years, with an upper bound at the 95% confidence interval of 1.5ºC and a lower bound at around -0.5ºC. 
+
+From this data it's easy to infer that the SARIMA prediciton is telling us that the temperature difference will most likely continue an upward trend, that is, current months temperatures will continue to be higher than its average for the same month of the last 20-30 years.
+
+<strong><span style="font-size:1em;">Example 2: Checking how well the model fits</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+perform_diagnostics(result_diff$model, result_diff$residuals, "Temp_Diff_30yr")
+```
+
+<strong>Note: There is one spike of autocorrelation in both the ACF and the PACF graphs that should warrant our attention.</strong>
+
+<strong><span style="font-size:1em;">Example 3: All depths, current temperature </span></strong>
+
+```{r message=FALSE, warning=FALSE}
+result_current <- forecast_sarima(final_result1, "Temperature_Current")
+```
+
+<strong>Comment:</strong> This SARIMA prediction is based on current monthly temperatures and all depths aggregated into a single value (mean) by year. When we aggregate all depths, we can now see how the model seems to pick the upward tendency that we saw previously in the graphs. In this case, both minimum and maximum peaks of predicted values seem to progressively get higher and higher values, with the grey extensions representing confidence intervals, and in line with what we observed before.
+
+
+<strong><span style="font-size:1em;">Example 3: Checking how well the model fits</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+perform_diagnostics(result_current$model, result_current$residuals, "Temperature_Current")
+```
+
+<strong>Note: There is 2-3 spikes of autocorrelation in both the ACF and the PACF graphs that should warrant our attention. To fix this we would have to modify the MA(Moving Average) and AR (Autoregressive) terms of the model. However, this falls way out of what is requested in the exercise an what we have studied in the class as well as the purpose of this exercise, hence for the time being we will not be performing any aditional modifications to the model (we would have to manually tune the model instead of using the auto.arima() function and we lack the expertise in time series analysis, which is a second semester non mandatory subject we haven't had the opportunity to study yet). </strong>
+
+<strong><span style="font-size:1em;">Example 4: All depths, historical temperature</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+result_historical <- forecast_sarima(final_result1, "Temperature_Historical")
+```
+
+<strong>Comment:</strong> This last forecast is the closest one to encompassing all available data we have in the dataset, taking the aggregate of all depths and the historical temperature as base for the predictions. As we can see, we get a beautiful graph that shows an upward tendency into the future with very low variation and very narrow confidence intervals.
+
+<strong><span style="font-size:1em;">Example 4: Checking how well the model fits</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+perform_diagnostics(result_historical$model, result_historical$residuals, "Temperature_Historical")
+```
+
+<strong>Note: There is one spike of autocorrelation in the ACF graph and the normality assumption is violated, which should warrant our attention.</strong>
+
+
+
+<span style="font-size:1.5em;">Section E</span> 
+
+Optionally, look for other data (public repositories, other sources), if you think it is necessary and cross them with those already available, especially if they help to better explain the possible climate change that is taking place
+
+<strong><span style="font-size:1.2em;">Answer</span></strong>
+
+We do think that, based on current data, it's pretty clear that seawater temperatures are in the midst of an upward trend due to climate change. However, for the sake of confirming and cross-validating these results, we will be briefly analyzing another source of data, namely, global land temperatures by country from 1743 to 2022. We have chosen this dataset due to it's rich data divided by country as well as the way in which the data is structured, which makes its analysis easier, especially when compared to the way seawater temperature was structured and presented. 
+
+Since seawater and land-based temperatures are invariably closely linked, we think it will serve us well in confirming the upward trend in temperatures due to climate change. Without further ado:
+
+
+
+```{r message=FALSE, warning=FALSE}
+#Exercise 3e
+analyzeTemperatureData <- function(country) {
+  library(ggplot2)
+  library(dplyr)
+  library(car)
+  library(tidyr)
+  
+  # Load the data
+  url <- "https://raw.githubusercontent.com/gindeleo/climate/master/GlobalLandTemperaturesByCountry.csv"
+  data <- read.csv(url, stringsAsFactors = FALSE)
+  
+  # Filter data for the specified country and years post-1752
+  data_filtered <- data %>%
+    filter(Country == country, !is.na(AverageTemperature)) %>%
+    separate(col = dt, into = c("Year", "Month", "Day"), convert = TRUE) %>%
+    filter(Year > 1752) %>%
+    group_by(Year) %>%
+    summarise(Temp = mean(AverageTemperature))
+  
+  p1 <- ggplot(data_filtered, aes(x = Year, y = Temp)) +
+    geom_point(aes(colour = Temp)) +  # Use colour only for points
+    geom_smooth() +  # No colour aesthetic here
+    scale_color_gradient(low = "blue", high = "red") +
+    ggtitle(paste(country, "'s Average Temperature 1753-2013")) +
+    theme(plot.title = element_text(hjust = 0.5))
+  
+  print(p1)
+  
+  # Create intervals and plot boxplot
+  min_year <- min(data_filtered$Year)
+  max_year <- max(data_filtered$Year)
+  total_years <- max_year - min_year + 1
+  num_intervals <- 6
+  interval_length <- floor(total_years / num_intervals)
+  
+  year_breaks <- c(min_year, 
+                   sapply(1:(num_intervals - 1), function(i) min_year + i * interval_length),
+                   max_year + 1)
+  
+  interval_labels <- paste(head(year_breaks, -1), tail(year_breaks, -1) - 1, sep = "-")
+  data_filtered$Interval <- cut(data_filtered$Year, breaks = year_breaks, labels = interval_labels, include.lowest = TRUE)
+  
+  
+  p2 <- ggplot(data_filtered, aes(x = Interval, y = Temp)) +
+    geom_boxplot(fill = "blue1") +
+    ggtitle("Temperature Distribution Across Intervals") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1), plot.title = element_text(hjust = 0.5))
+  print(p2)
+  
+  # Conduct ANOVA
+  anova_result <- aov(Temp ~ Interval, data = data_filtered)
+  print(summary(anova_result))
+  print(model.tables(anova_result, "means"), digits = 3)
+  
+  # Check ANOVA assumptions
+  shapiro_res <- shapiro.test(residuals(anova_result))
+  levene_res <- leveneTest(Temp ~ Interval, data = data_filtered)
+  
+  # Print results of assumption tests
+  print(shapiro_res)
+  print(levene_res)
+  
+  # If assumptions are violated, perform Welch's ANOVA and Games-Howell test
+  if (shapiro_res$p.value < 0.05 || levene_res$'Pr(>F)'[1] < 0.05) {
+    print("ANOVA assumptions violated. Proceeding with Welch's ANOVA and Games-Howell test.")
+    welch_res <- oneway.test(Temp ~ Interval, data = data_filtered)
+    print(welch_res)
+    
+    if (!requireNamespace("PMCMRplus", quietly = TRUE)) {
+      install.packages("PMCMRplus")
+    }
+    library(PMCMRplus)
+    gh_result <- gamesHowellTest(Temp ~ Interval, data = data_filtered)
+    print(gh_result)
+  } else {
+    # Tukey HSD test if ANOVA assumptions are not violated
+    tukey_res <- TukeyHSD(anova_result)
+    print(tukey_res)
+  }
+}
+```
+
+
+The function analyzeTemperatureData() is designed to encapsulate various stages of data analysis, ranging from data retrieval and preprocessing to statistical analysis and visualization, thus offering a comprehensive insight into the temperature trends of a given country.
+
+The function commences its operation by importing the global land temperature data by country from a predefined URL and loads it into a dataframe. This data is then meticulously filtered to focus on the chosen country, excluding entries with missing average temperature values. Furthermore, the function segregates the date into year, month, and day components and discards data preceding the year 1753 to ensure a consistent historical scope.
+
+Upon preparing the data, the function proceeds to aggregate it by year, calculating the mean temperature for each year. This aggregated data is then utilized to generate two distinct types of visualizations. The first is a time series scatter plot, marked by a color gradient shifting from blue to red, representing cooler to warmer temperatures, respectively. This plot is enhanced with a smooth trend line, offering a clear visual depiction of the temporal changes in temperature. The second visualization is a boxplot segmented into dynamic time intervals, providing a graphical representation of the temperature distribution across these periods. This boxplot not only aids in visualizing the spread and central tendency of temperatures within each interval but also facilitates a comparative analysis across different time frames.
+
+The analytical core of the function is the execution of an Analysis of Variance (ANOVA) to ascertain whether there are statistically significant differences in the mean temperatures across the defined intervals. The function outputs a detailed summary of the ANOVA, including mean temperatures for each interval. To ensure the validity of the ANOVA results, the script incorporates checks for normality and homogeneity of variances using the Shapiro-Wilk and Levene's tests, respectively.
+
+If these assumptions are not met, the function automatically adapts its analytical approach by employing Welch's ANOVA and the Games-Howell post-hoc test, methods that are robust against assumption violations. Conversely, if the assumptions hold true, the script conducts the Tukey Honest Significant Difference (HSD) test, providing a thorough post-hoc analysis of interval differences.
+
+<strong><span style="font-size:1em;">Example 1: Land temperatures of Spain 1753-2022</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+analyzeTemperatureData("Spain")
+```
+
+
+<strong><span style="font-size:1em;">Example 2: Land temperatures of Germany 1753-2022</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+analyzeTemperatureData("Germany")
+```
+
+
+<strong><span style="font-size:1em;">Example 3: Land temperatures of Japan 1753-2022</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+analyzeTemperatureData("Japan")
+```
+
+
+<strong><span style="font-size:1em;">Example 4: Land temperatures of China 1753-2022</span></strong>
+
+```{r message=FALSE, warning=FALSE}
+analyzeTemperatureData("China")
+```
+
+
+<strong>Note: In all countries we have tried there is a very clear upward tendency of temperature. The p-values of all of the ANOVAs are below 0.05, and thus we can conclude that the difference in temperatures between intervals is statistically significant. We can also see the decomposition of this significant p-values between groups in the post-hoc analysis that the function realizes, which further confirms and reinforces the climate change thesis.</strong>
+
+
+
+
+<span style="font-size:1.5em;">Section F</span> 
+
+Optionally, create a library in R to store the previous functions, the source data and place it in a public repository such as Github (see at: https://github.com/)
+
+<strong><span style="font-size:1.2em;">Answer</span></strong>
+
+Before answering this request, there are several considerations that are important to mention.
+
+  1. If by "previous functions" you mean all of the functions of this final assignment, then that is a titanic work that would take at least several days of debugging and complying with all the R checks. We don't think that that's the objective of this exercise, it just does not make any sense.
+  
+  2. If we assume that the objective of the exercise is to demonstrate that we know how to create an R library and push it to Github, then the most plausible and direct way of demonstrating that knowledge would be to push just one of the functions to github. Because if you know how to do it for one you know how to do it for any. We do not see any reason, besides wasting our time and your time, in just repeating the process for every previous function in this final assignment. But if you can cite us just one that makes sense, we'd be happy to repeat the process for each and every function in this final assignment. We have also done all of this final assignment only between two persons (when the maximum is 3), and we honestly think we have worked enough.
+  
+  
+In light of these considerations, we will be showcasing in depth how to create a library and store the function of exercise 3 section E (analyzeTemperatureData). We chose this function because it's the most generalizable function of this final assignment and we do actually think that could be useful for someone interested in analyzing climate change temperature trends over the last 300 years.
+  
+  
+
+<strong><span style="font-size:1em;">Step 1: Create local repository for an R package</span></strong>
+
+By executing the following code we create a local repository for an R package. In this case, the chosen package name is clinsis.
+
+```{r eval=FALSE, message=FALSE, warning=FALSE}
+library(devtools)
+create_package(path = "C:/Users/Shiro/Documents/clinsis")
+```
+
+
+<strong><span style="font-size:1em;">Step 2: Add function to R directory</span></strong>
+
+After setting up the local repository, we have to create an R script with out analyzeDataTemperature function and store it in the R directory of our local package repository. However, we can´t just copy and paste our function into the script. We must make some changes in order to pass the necesary R checks with no errors and warnings. In particular, we have to make the following changes:
+
+  1. Add Roxygen2 comments and other relevant information on top of the function.
+  
+  2. Due to function name conflicts, we have to use explicit namespace functions
+  
+  3. Add some conditional checks to ensure that all dependencies required to run the function are installed and loaded before execution.
+  
+After making all of the aforementioned changes, this is how our analyzeDataTemperature looks like:
+
+```{r eval=FALSE, message=FALSE, warning=FALSE}
+#' Analyze Temperature Data
+#'
+#' This function analyzes temperature data for a given country.
+#' @param country The name of the country to analyze.
+#' @return A plot of the temperature data.
+#' @importFrom ggplot2 ggplot aes geom_point geom_smooth scale_color_gradient ggtitle
+#' @importFrom dplyr filter group_by summarise %>%
+#' @importFrom tidyr separate
+#' @importFrom stats aov shapiro.test model.tables oneway.test residuals dt
+#' @importFrom car leveneTest
+#' @importFrom utils head tail read.csv
+#' @importFrom rlang .data
+#' @export
+#' @examples
+#' analyzeTemperatureData("Japan")
+
+analyzeTemperatureData <- function(country) {
+  # Load the data
+  url <- "https://raw.githubusercontent.com/gindeleo/climate/master/GlobalLandTemperaturesByCountry.csv"
+  data <- utils::read.csv(url, stringsAsFactors = FALSE)
+
+  # Use dplyr and tidyr for data manipulation
+  data_filtered <- data %>%
+    dplyr::filter(.data$Country == country, !is.na(.data$AverageTemperature)) %>%
+    tidyr::separate(col = dt, into = c("Year", "Month", "Day"), convert = TRUE) %>%
+    dplyr::filter(.data$Year > 1752) %>%
+    dplyr::group_by(.data$Year) %>%
+    dplyr::summarise(Temp = mean(.data$AverageTemperature, na.rm = TRUE))
+
+  # Plotting with ggplot2
+  p1 <- ggplot2::ggplot(data_filtered, ggplot2::aes(x = .data$Year, y = .data$Temp)) +
+    ggplot2::geom_point(ggplot2::aes(colour = .data$Temp)) +
+    ggplot2::geom_smooth() +
+    ggplot2::scale_color_gradient(low = "blue", high = "red") +
+    ggplot2::ggtitle(paste(country, "'s Average Temperature 1753-2013")) +
+    ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5))
+
+  print(p1)
+
+  # Create intervals and plot boxplot
+  min_year <- min(data_filtered$Year)
+  max_year <- max(data_filtered$Year)
+  total_years <- max_year - min_year + 1
+  num_intervals <- 6
+  interval_length <- floor(total_years / num_intervals)
+
+  year_breaks <- c(min_year,
+                   sapply(1:(num_intervals - 1), function(i) min_year + i * interval_length),
+                   max_year + 1)
+
+  interval_labels <- paste(head(year_breaks, -1), tail(year_breaks, -1) - 1, sep = "-")
+  data_filtered$Interval <- cut(data_filtered$Year, breaks = year_breaks, labels = interval_labels, include.lowest = TRUE)
+
+  p2 <- ggplot2::ggplot(data_filtered, ggplot2::aes(x = .data$Interval, y = .data$Temp)) +
+    ggplot2::geom_boxplot(fill = "blue1") +
+    ggplot2::ggtitle("Temperature Distribution Across Intervals") +
+    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1), plot.title = ggplot2::element_text(hjust = 0.5))
+
+  print(p2)
+
+  # Conduct ANOVA
+  anova_result <- stats::aov(Temp ~ Interval, data = data_filtered)
+  print(summary(anova_result))
+  print(stats::model.tables(anova_result, "means"), digits = 3)
+
+  # Check ANOVA assumptions
+  shapiro_res <- stats::shapiro.test(stats::residuals(anova_result))
+  levene_res <- car::leveneTest(Temp ~ Interval, data = data_filtered)
+
+  # Print results of assumption tests
+  print(shapiro_res)
+  print(levene_res)
+
+  # If assumptions are violated, perform Welch's ANOVA and Games-Howell test
+  if (shapiro_res$p.value < 0.05 || levene_res$'Pr(>F)'[1] < 0.05) {
+    print("ANOVA assumptions violated. Proceeding with Welch's ANOVA and Games-Howell test.")
+    welch_res <- stats::oneway.test(Temp ~ Interval, data = data_filtered)
+    print(welch_res)
+
+    # Check for PMCMRplus package and load it
+    if (!requireNamespace("PMCMRplus", quietly = TRUE)) {
+      stop("Package 'PMCMRplus' is required but not installed. Please install it to use this function.")
+    }
+
+
+    gh_result <- PMCMRplus::gamesHowellTest(Temp ~ Interval, data = data_filtered)
+
+    print(gh_result)
+  } else {
+    # Tukey HSD test if ANOVA assumptions are not violated
+    tukey_res <- stats::TukeyHSD(anova_result)
+    print(tukey_res)
+  }
+}
+```
+
+
+<strong><span style="font-size:1em;">Step 3: Modify description, document and check</span></strong>
+
+We open up the description and modify it according to our needs. This is an example of how it should look like:
+
+```{r eval=FALSE,message=FALSE,warning=FALSE}
+Package: clinsis
+Type: Package
+Title: Land Based Temperature Analysis by Country
+Version: 0.0.0.9000
+Authors@R:
+    person("Nabil", "El Bachiri", email = "freddyfrostt@gmail.com", role = c("aut", "cre"))
+Description: This package provides tools for analyzing and performing statistical operations on land-based temperature data by country, covering the period from 1753 to 2023. It includes functionalities for data processing, visualization, and statistical analysis.
+License: GPL-3	
+Encoding: UTF-8
+LazyData: true
+Imports:
+    ggplot2,
+    dplyr,
+    car,
+    tidyr,
+    PMCMRplus,
+    rlang
+RoxygenNote: 7.2.3
+
+```
+
+After ensuring that our description is correct, we run the following commands to document and check that our function has no errors, no warnings and no notes:
+
+```{r eval=FALSE, warning=FALSE, message=FALSE}
+setwd("C:/Users/Shiro/Documents/clinsis")
+devtools::document()
+devtools::load_all()
+devtools::check()
+```
+
+
+<strong><span style="font-size:1em;">Step 4: Initializing Git and Github repositories</span></strong>
+
+After ensuring that our function passes all the checks successfully, we have to create the local and online repositories to store our library (Git and Github respectively)
+
+To initiate our local Git repository, we open a terminal in R studio and write the following commands:
+
+```{r eval=FALSE, warning=FALSE, message=FALSE}
+cd C:/Users/Shiro/Documents/clinsis
+git init
+```
+
+We can then commit our package to our locak Git repository with the following commands using the R Studio terminal:
+
+```{r eval=FALSE, warning=FALSE, message=FALSE}
+git add .
+git commit -m "Initial commit of my R package"
+```
+
+Then we also have to create the online repository in our Github:
+
+(1) Go to GitHub and log in.
+(2) Click on the "+" icon in the top-right corner and select "New repository."
+(3) Fill in the repository name and description. Keep it public.
+(4) Do not initialize the repository with a README, .gitignore, or license (since our package already has these).
+(5) Click "Create repository."
+
+In our case, clinsis is stored at https://github.com/MidnightRequiem/clinsis
+
+
+
+<strong><span style="font-size:1em;">Step 5: Linking our local Git repository to the Github repository and commiting</span></strong>
+
+Now we only have to link our local Git repository with our online Github repository with the following command in R Studio terminal:
+
+```{r eval=FALSE, warning=FALSE, message=FALSE}
+git remote add origin https://github.com/MidnightRequiem/clinsis.git
+
+```
+
+And then we can finally push our commits to Github with the following command:
+
+```{r eval=FALSE, warning=FALSE, message=FALSE}
+git push -u origin master
+```
+
+And that's it, we have succesfully created our own library in R to store analyzeDataTemperature function and placed it in a public repository. If we wanted to add more functions to the library we would have to repeat the whole process again, put the new function into another R script in our clinsis R directory, document, check and push it to git and github.
+
+The last step to do is to check that we can actually load and run our library from github in R. To do that, we can run the following code:
+
+```{r warning=FALSE, message=FALSE}
+devtools::install_github("MidnightRequiem/clinsis")
+library(clinsis)
+analyzeTemperatureData("Spain")
+```
+
+
+<strong>As you can see, the library works flawlessly.</strong>
+
+
+
+
+
+
+
+<center> <span style="font-size:1.7em;">Annex</span></center> 
+
+
+
+
+<strong><span style="font-size:1em;">Interpreting the output of the perform_diagnostics() function in SARIMA forecast</span></strong>
+
+
+Interpreting the output graphs and tests from a Seasonal Autoregressive Integrated Moving Average (SARIMA) model in R involves understanding the diagnostics for time series analysis. Here's a very basic guide to interpreting these key elements:
+
+<strong>* Standardized Residuals:</strong> This graph shows the residuals (errors) of the model divided by their estimated standard deviation. Ideally, these residuals should look like white noise, meaning they are normally distributed with a mean of zero and constant variance. Large deviations from zero suggest model inadequacies.
+
+<strong>* ACF of Residuals:</strong> The Autocorrelation Function (ACF) plot for the residuals shows the correlation of the series with its own lagged values. In a well-fitting model, the ACF should show no significant autocorrelation. If significant autocorrelation is present (indicated by bars exceeding the significance bounds), the model might need further tuning.
+
+<strong>* p-Values for Ljung-Box Test:</strong> The Ljung-Box test checks the overall randomness based on a number of lags. The p-values indicate whether the residuals have significant autocorrelations at different lag lengths. Higher p-values (typically above 0.05) suggest that the residuals are independent at the 95% confidence level, indicating a good model fit.
+
+<strong>* Residuals of Dataset:</strong> This is a plot of residuals over time. We want to check for any patterns or systematic structures. Ideally, residuals should appear as a random cloud of points centered around zero without any discernible pattern. Patterns or trends may indicate that the model has not fully captured the underlying process.
+
+<strong>* ACF of Dataset Residuals:</strong> Similar to the ACF of residuals, but focused specifically on the residuals of the dataset. We are looking for the absence of significant correlations here as well.
+
+<strong>* PACF of Dataset Residuals:</strong> The Partial Autocorrelation Function (PACF) shows the correlation of the residuals with its own lagged values, controlling for the values of the time series at all shorter lags. Significant spikes in the PACF plot (beyond the significance bounds) may suggest that additional lags should be included in the model.
+
+<strong>* Shapiro-Wilk Test:</strong> This test is used to assess the normality of the residuals. If the residuals are normally distributed, it supports the assumption that the errors are normally distributed - a key assumption in many time series models. A high p-value (typically >0.05) indicates that the residuals are normally distributed.
+
+In summary, when analyzing SARIMA model outputs, we are essentially checking whether the residuals resemble white noise (no autocorrelation, normally distributed, mean around zero, constant variance), and whether the model has adequately captured the patterns in the data without overfitting or underfitting. If the diagnostics suggest otherwise, we may need to revisit the model choice, including the parameters for the autoregressive (AR), differencing (I), and moving average (MA) components, as well as the seasonal components of the SARIMA model.
